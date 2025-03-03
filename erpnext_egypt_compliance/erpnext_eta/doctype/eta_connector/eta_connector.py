@@ -28,7 +28,6 @@ class ETAConnector(Document):
         self.DOCUMET_SUBMISSION = self.ETA_BASE + "/documentsubmissions"
         self.DOCUMENT_TYPES = self.ETA_BASE + "/documenttypes"
         self.session = ETASession().get_session()
-
     def get_eta_access_token(self):
 
         if self.access_token:
@@ -87,11 +86,41 @@ class ETAConnector(Document):
                     frappe.db.commit()
         return eta_response
 
+
+    def download_eta_pdf(self, docname):
+        try:
+            headers = {"Authorization": "Bearer " + self.get_eta_access_token()}
+            uuid = frappe.get_value("Sales Invoice", docname, "eta_uuid")
+            
+            if not uuid:
+                frappe.throw("No UUID found for the Sales Invoice")
+
+            document_url = f"{self.ETA_BASE}/documents/{uuid}/pdf"
+            response = self.session.get(document_url, headers=headers)
+            
+            if response.status_code == 200:
+                frappe.local.response.filename = f"eta_invoice_{docname}.pdf"
+                frappe.local.response.filecontent = response.content
+                frappe.local.response.type = "download"
+                frappe.local.response.content_type = "application/pdf"
+            else:
+                frappe.throw(f"Failed to download PDF. Status code: {response.status_code}")
+
+        except Exception as e:
+            frappe.log_error(f"ETA PDF Download Error: {str(e)}")
+            frappe.throw(f"Error downloading PDF: {str(e)}")
+
+
+
+
     def update_eta_docstatus(self, docname):
         headers = self.get_headers()
         uuid = frappe.get_value("Sales Invoice", docname, "eta_uuid")
+        submission_uuid = frappe.get_value("Sales Invoice", docname, "eta_submission_id")
+        
         UUID_PATH = self.ETA_BASE + f"/documents/{uuid}/raw"
         eta_response = self.session.get(UUID_PATH, headers=headers)
+
         if eta_response.ok:
             eta_response = eta_response.json()
             frappe.db.set_value(
@@ -99,7 +128,8 @@ class ETAConnector(Document):
             )
             return eta_response.get("status")
         return "Didn't update Status"
-
+    
+    
     def get_document_type(self, doc_id=""):
         headers = self.get_headers()
         _path = self.DOCUMENT_TYPES + f"/{doc_id}"
@@ -157,6 +187,9 @@ class ETAConnector(Document):
             print(docname)
             self.update_eta_docstatus(docname)
             frappe.db.commit()
+
+
+
 
 
 # def delayed_submit_signed_invoices(self, datetime):
